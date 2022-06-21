@@ -1,0 +1,106 @@
+/**
+ *  Directolor Shade
+ *
+ *  Copyright 2022 Jason Loucks
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ *  Change History:
+ *
+ *    Date        Who            What
+ *    ----        ---            ----
+ *
+ * 
+ */
+metadata {
+	definition (name: "Directolor Window Shade", namespace: "loucks", author: "Jason Loucks") {
+		capability "Window Shade"
+        capability "Switch"
+		capability "Actuator"
+		capability "Sensor"
+	}
+    
+    preferences {
+        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
+        input name: "ipAddress", type: "string", title: "IP Address", defaultValue: "192.168.86.249"
+        input name: "deviceType", type: "string", title: "Device Type", defaultValue: "Directolor"
+        input name: "remote", type: "number", title: "Remote #", defaultValue: 1
+        input name: "channel", type: "number", title: "Channel #", defaultValue: 1
+	}
+}
+
+def logsOff(){
+    log.warn "debug logging disabled..."
+    device.updateSetting("logEnable",[value:"false",type:"bool"])
+}
+
+def open() {
+	sendDataDelayed("open")                
+    sendEvent(name: "switch", value: "on", isStateChange: true)
+}
+
+def close() {
+	sendDataDelayed("close")
+    sendEvent(name: "switch", value: "off", isStateChange: true)
+}
+
+void on() {
+    open()
+}
+
+void off() {
+    close()
+}
+
+
+def setPosition(position) {
+    log.info "setPosition() not fully implemented"
+    if (position == 50)
+        sendData("TiltOpen");        
+    sendEvent(name: "position", value: position)
+}
+
+def stopPositionChange() {
+    sendData("stop");    
+}
+
+def sendDataDelayed(String value) {
+    Random random = new Random()
+    int i = random.nextInt(513)
+    runInMillis(i, 'sendData', [data: value])
+//    log.warn "Random for i first: ${i}"
+    i = random.nextInt(604) + i
+    runInMillis(i, 'sendData', [data: value])
+//    log.warn "Random for i second: ${i}"
+}
+
+def sendData(String value) {
+    try
+    {
+        httpGet("http://${ipAddress}/?action=${value}&remote=${remote}&channel=${channel}")        { resp ->
+            if (resp.success) {
+                if (value == "close") value = "closed"
+                sendEvent(name: "windowShade", value: "${value}", isStateChange: true)
+            }
+            if (logEnable)
+                if (resp.data) log.debug "${resp.data}"
+        }
+    } catch (Exception e) {
+        log.warn "Call to off failed: ${e.message}"
+    }
+}
+
+def installed() {
+    updated()
+}
+
+def updated() {
+    if (logEnable) runIn(1800,logsOff)
+}
