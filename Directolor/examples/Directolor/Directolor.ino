@@ -16,45 +16,93 @@ void handleRoot() {
   digitalWrite(led, 1);
   char temp[2000];
 
-  char remoteOptions[400];
-  char channelOptions[400];
+  char remoteOptions[60 * DIRECTOLOR_REMOTE_COUNT];
+  char channelOptions[60 * DIRECTOLOR_REMOTE_CHANNELS];
 
   int offset = 0;
 
   char tempValue[15];
 
   short int remote = 1;
-  short int channel = 1;
+  short int channel = 0;
+  bool sendMultiCode = false;
+  String action;
+  String type;
 
   if (server.hasArg("remote"))
     remote = server.arg("remote").toInt();
-  if (server.hasArg("channel"))
-    channel = server.arg("channel").toInt();
-
   if (server.hasArg("action"))
-  {
-    if (server.arg("action").equalsIgnoreCase("open"))
+    action = server.arg("action");
+  if (server.hasArg("type"))
+    type = server.arg("type");
+  if (server.hasArg("channel")) {
+    channel = server.arg("channel").toInt();
+  }
+  else if (server.hasArg("channels")) {
+    channel = server.arg("channels").toInt();
+    sendMultiCode = true;
+  }
+  else  {
+    for (int i = 0; i < DIRECTOLOR_REMOTE_CHANNELS; i++)
+    {
+      snprintf(&tempValue[0], 15, "c%d", i + 1);
+      if (server.hasArg(tempValue))
+        channel += pow(2, i);
+    }
+    if (channel == 0) {
+      channel = 1;
+    }
+    else {
+      sendMultiCode = true;
+    }
+  }
+  //handle params
+  if (sendMultiCode) {
+    if (action.equalsIgnoreCase("open"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_open);
+    else if (action.equalsIgnoreCase("close"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_close);
+    else if (action.equalsIgnoreCase("tiltOpen"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_tiltOpen);
+    else if (action.equalsIgnoreCase("tiltClose"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_tiltClose);
+    else if (action.equalsIgnoreCase("stop"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_stop);
+    else if (action.equalsIgnoreCase("toFav"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_toFav);
+    else if (action.equalsIgnoreCase("join"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_join);
+    else if (action.equalsIgnoreCase("remove"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_remove);
+    else if (action.equalsIgnoreCase("setFav"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_setFav);
+    else if (action.equalsIgnoreCase("duplicate"))
+      directolor.sendMultiChannelCode(remote, channel, directolor_duplicate);
+  }
+  else  {
+    if (action.equalsIgnoreCase("open"))
       directolor.sendCode(remote, channel, directolor_open);
-    if (server.arg("action").equalsIgnoreCase("close"))
+    else if (action.equalsIgnoreCase("close"))
       directolor.sendCode(remote, channel, directolor_close);
-    if (server.arg("action").equalsIgnoreCase("tiltOpen"))
+    else if (action.equalsIgnoreCase("tiltOpen"))
       directolor.sendCode(remote, channel, directolor_tiltOpen);
-    if (server.arg("action").equalsIgnoreCase("tiltClose"))
+    else if (action.equalsIgnoreCase("tiltClose"))
       directolor.sendCode(remote, channel, directolor_tiltClose);
-    if (server.arg("action").equalsIgnoreCase("stop"))
+    else if (action.equalsIgnoreCase("stop"))
       directolor.sendCode(remote, channel, directolor_stop);
-    if (server.arg("action").equalsIgnoreCase("toFav"))
+    else if (action.equalsIgnoreCase("toFav"))
       directolor.sendCode(remote, channel, directolor_toFav);
-    if (server.arg("action").equalsIgnoreCase("join"))
+    else if (action.equalsIgnoreCase("join"))
       directolor.sendCode(remote, channel, directolor_join);
-    if (server.arg("action").equalsIgnoreCase("remove"))
+    else if (action.equalsIgnoreCase("remove"))
       directolor.sendCode(remote, channel, directolor_remove);
-    if (server.arg("action").equalsIgnoreCase("setFav"))
+    else if (action.equalsIgnoreCase("setFav"))
       directolor.sendCode(remote, channel, directolor_setFav);
-    if (server.arg("action").equalsIgnoreCase("duplicate"))
+    else if (action.equalsIgnoreCase("duplicate"))
       directolor.sendCode(remote, channel, directolor_duplicate);
   }
 
+  //create webpage
   for (int i = 1; i < DIRECTOLOR_REMOTE_COUNT + 1; i++)
   {
     if (i == remote)
@@ -66,38 +114,39 @@ void handleRoot() {
   offset = 0;
   for (int i = 1; i < DIRECTOLOR_REMOTE_CHANNELS + 1; i++)
   {
-    if (i == channel)
-      strcpy (tempValue, " selected");
+    if ((short int)pow(2, (i - 1)) & channel)
+      strcpy (tempValue, " checked");
     else
       tempValue[0] = 0;
-    offset += snprintf(&channelOptions[offset], 3000, "<option value=\"%d\"%s>Channel %d</option>", i, tempValue, i);
+    offset += snprintf(&channelOptions[offset], 3000, "<label>   %d:</label><input type=\"checkbox\" name=\"c%d\" %s>", i, i, tempValue);
   }
 
   snprintf(temp, 2000,
-
            "<html>\
   <head>\
     <title>directolor</title>\
     <style>\
       body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; Color: #000088; }\
     </style>\
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\
   </head>\
   <body>\
     <h1>Welcome to directolor!</h1>\
 <form action=\"/\">\
-  <label for=\"Remotes\">Choose a remote:</label>\
+  <label>channel%s=%d</label>\
+  <br><br>\
+  <label for=\"Remotes\">Choose remote:</label>\
   <select name=\"remote\" id=\"remote\">\
     %s\
   </select><br><br>\
-    <label for=\"Channel\">Choose a channel:</label>\
-  <select name=\"channel\" id=\"channel\">\
-    %s\
-  </select>\
-  <br><br>\
+    <label for=\"Channel\">Choose channels:</label>\
+           %s\
+           <br><br>\
   <button type=\"submit\" name=\"action\" value=\"open\">Open</button>\
   <button type=\"submit\" name=\"action\" value=\"close\">Close</button>\
   <button type=\"submit\" name=\"action\" value=\"tiltOpen\">Tilt Open</button>\
   <button type=\"submit\" name=\"action\" value=\"tiltClose\">Tilt Close</button>\
+  <br><br>\
   <button type=\"submit\" name=\"action\" value=\"stop\">Stop</button>\
   <button type=\"submit\" name=\"action\" value=\"toFav\">to Favorite</button>\
   <br><br>\
@@ -107,7 +156,7 @@ void handleRoot() {
   <button type=\"submit\" name=\"action\" value=\"duplicate\">Duplicate</button>\
 </form>\
   </body>\
-</html>", remoteOptions, channelOptions );
+</html>", sendMultiCode ? "s" : "", channel, remoteOptions, channelOptions );
   server.send(200, "text/html", temp);
   digitalWrite(led, 0);
 }
@@ -160,7 +209,7 @@ void setup(void) {
   }
 
   server.on("/", handleRoot);
-   server.onNotFound(handleNotFound);
+  server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("HTTP server started");
 }
