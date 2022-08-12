@@ -6,6 +6,34 @@ This is a library known to work with ESP32 and NRF24L01+.  It allows direct cont
 
 This differs from Wevolor (https://wevolor.com/) in that you DON'T need a Levolor 6 button remote.  
 
+Typical usage:
+
+1.	download solution, install to your libraries folder
+2.	open the GetBlindCodes example
+3.	choose to either copy the Directolor remotes to your remotes or copy your remotes to Directolor
+
+Copy Directolor remotes to your remotes:
+1.	open the battery door on your remote
+2.	using a paper clip or similar, put the remote into duplicate mode
+3.	hold the all key on your current remote
+4.	using the serial monitor, choose the correct remote, and send the join command
+5.	reset your shades to the remote you just duplicated
+
+Copy your remotes to Directolor:
+1.	using the serial monitor, put Directolor into Remote Search Mode
+2.	press the stop button on your current remote with a single channel selected
+3.	using the serial monitor, dump the remote codes
+4.	copy the remote codes into Directolor.h
+
+Test that you can control your shades via the serial monitor (open, close, stop, etc)
+
+Once it is working, open the Directolor example.
+Update your WiFi params.
+Connect to http://directolor (or the IP address - logged to serial monitor)
+Test that you can control your shades via the web interface
+
+Please report any issues here.
+
 To connect the ESP32 to the NRF24L01+ connect:
 <br>(Some have recommended a 10uF cap across ground and 3.3V - I haven't needed the cap.)
 <table>
