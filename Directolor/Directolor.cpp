@@ -23,29 +23,25 @@
 #include "CRC.h"
 
 RF24 Directolor::radio;
-QueueHandle_t Directolor::queue;
 bool Directolor::messageIsSending = false;
 bool Directolor::learningRemote = false;
 bool Directolor::radioValid = false;
 Directolor::RemoteCode Directolor::remoteCode;
-long Directolor::lastMillis = 0;
+unsigned long Directolor::lastMillis = 0;
+short Directolor::lastCommand = 0;
 
 constexpr uint8_t Directolor::matchPattern[4] = {0xC0, 0X11, 0X00, 0X05}; // this is what we use to find out what the codes for the remote are
 
 Directolor::Directolor(uint16_t _cepin, uint16_t _cspin, uint32_t _spi_speed)
 {
   radio = RF24(_cepin, _cspin, _spi_speed);
-  queue = xQueueCreate(DIRECTOLOR_REMOTE_COUNT, sizeof(CommandItem));
   messageIsSending = false;
-
-  xTaskCreatePinnedToCore(
-      sendCodeTask,   /* Function to implement the task */
-      "sendCodeTask", /* Name of the task */
-      10000,          /* Stack size in words */
-      NULL,           /* Task input parameter */
-      2,              /* Priority of the task */
-      NULL,           /* Task handle. */
-      0);             /* Core where the task should run */
+  for (int i = 0; i < DIRECTOLOR_MAX_QUEUED_COMMANDS; i++)
+  {
+    commandItems[i].radioCodes = 0;
+    commandItems[i].blindAction = directolor_stop;
+    commandItems[i].channels = 0;
+  }
 }
 
 /**
@@ -157,14 +153,14 @@ void Directolor::dumpCodes()
   Serial.println("}}");
 }
 
-void Directolor::checkRadioPayload()  //could modify this to allow capture if commands were sent using multiple channels
+void Directolor::checkRadioPayload() // could modify this to allow capture if commands were sent using multiple channels
 {
   if (radioStarted())
   {
-    char payload[32];
     uint8_t pipe;
     if (radio.available(&pipe))
     {
+      char payload[32];
       uint8_t bytes = radio.getPayloadSize(); // get the size of the payload
       radio.read(&payload, bytes);            // fetch payload from FIFO
 
@@ -273,35 +269,28 @@ bool Directolor::sendCode(int remoteId, uint8_t channel, BlindAction blindAction
   return sendMultiChannelCode(remoteId, pow(2, channel - 1), blindAction);
 }
 
+Directolor::CommandItem Directolor::commandItems[DIRECTOLOR_MAX_QUEUED_COMMANDS];
+
 bool Directolor::sendMultiChannelCode(int remoteId, uint8_t channels, BlindAction blindAction)
 {
-  if (channels & 0xC0 || remoteId < 1 || remoteId > DIRECTOLOR_REMOTE_COUNT)
+  if (channels > pow(2, DIRECTOLOR_REMOTE_CHANNELS) || remoteId < 1 || remoteId > DIRECTOLOR_REMOTE_COUNT)
     return false;
 
   if (!radioStarted())
     return false;
-
-  CommandItem commandItems[DIRECTOLOR_REMOTE_COUNT];
-  int queuedCommands = 0;
-
-  while (xQueueReceive(queue, &commandItems[queuedCommands], 0))
-    queuedCommands++;
 
   uint8_t *uniqueBytes;
 
   Serial.print("Remote ");
   Serial.print(remoteId);
   Serial.print(", Channels:");
-  for (int i = 0; i < 6; i++)
+  for (int i = 0; i < DIRECTOLOR_REMOTE_CHANNELS; i++)
     if (bitRead(channels, i))
     {
       Serial.print(" ");
       Serial.print(i + 1);
     }
   Serial.print("-");
-
-  CommandItem commandItem;
-  commandItem.radioCodes = (uint8_t *)remoteCodes[remoteId - 1].radioCode;
 
   switch (blindAction)
   {
@@ -336,24 +325,44 @@ bool Directolor::sendMultiChannelCode(int remoteId, uint8_t channels, BlindActio
   }
 
   bool commandQueued = false;
-  for (int i = 0; i < queuedCommands; i++)
+  uint8_t *radioCodes = (uint8_t *)remoteCodes[remoteId - 1].radioCode;
+  for (int i = 0; i < DIRECTOLOR_MAX_QUEUED_COMMANDS; i++)
   {
-    if (commandItems[i].radioCodes == commandItem.radioCodes && commandItems[i].blindAction == blindAction)
+    if (commandItems[i].radioCodes != radioCodes)
+    {
+      continue;
+    }
+    else if (commandItems[i].blindAction == blindAction) // same action - update channels - reset attempts
     {
       commandItems[i].channels |= channels;
       commandItems[i].resendRemainingCount = MESSAGE_SEND_ATTEMPTS;
       commandQueued = true;
+      break;
     }
-    xQueueSend(queue, &commandItems[i], portMAX_DELAY);
+    else if (commandItems[i].channels | channels && blindAction != directolor_join && blindAction != directolor_remove) // different action - make sure we remove and disable action if required
+    {
+      commandItems[i].channels ^= channels;
+      if (!commandItems[i].channels)
+        commandItems[i].radioCodes = 0;
+      break;
+    }
   }
 
   if (!commandQueued)
   {
-    commandItem.channels = channels;
-    commandItem.blindAction = blindAction;
-    commandItem.resendRemainingCount = MESSAGE_SEND_ATTEMPTS;
-    xQueueSend(queue, &commandItem, portMAX_DELAY);
+    for (int i = 0; i < DIRECTOLOR_MAX_QUEUED_COMMANDS; i++)
+    {
+      if (commandItems[i].radioCodes == 0)
+      {
+        commandItems[i].radioCodes = radioCodes;
+        commandItems[i].channels = channels;
+        commandItems[i].blindAction = blindAction;
+        commandItems[i].resendRemainingCount = MESSAGE_SEND_ATTEMPTS;
+        break;
+      }
+    }
   }
+  return true;
 }
 
 bool Directolor::sendCode(byte *payload, uint8_t payload_size)
@@ -373,9 +382,11 @@ bool Directolor::sendCode(byte *payload, uint8_t payload_size)
 
   for (int i = 0; i < MESSAGE_SEND_RETRIES; i++) // setting this too low failed intermittently
   {
-    radio.writeFast(payload, payload_size, true);  //we aren't waiting for an ACK, so we need to writeFast with multiCast set to true 
-    delayMicroseconds(1); // removing this made it not work
+    radio.writeFast(payload, payload_size, true); // we aren't waiting for an ACK, so we need to writeFast with multiCast set to true
+    radio.txStandBy();
+    // delayMicroseconds(1); // removing this made it not work
   }
+  return true;
 }
 
 // There are a lot of hardcoded values here.  I'm unsure why these ever might need to be different.
@@ -508,7 +519,8 @@ int Directolor::getRadioCommand(byte *payload, CommandItem commandItem)
   }
   const uint8_t offset = 0;
   int payloadOffset = 0;
-  for (int j = 0; j < MAX_PAYLOAD_SIZE; j++)
+  int j = 0;
+  while (j + payloadOffset < MAX_PAYLOAD_SIZE)
   {
     switch (j) // 0, 1, 6, 9, 10, 12, 13, 14, 15
     {
@@ -531,16 +543,15 @@ int Directolor::getRadioCommand(byte *payload, CommandItem commandItem)
       payload[payloadOffset + j] = random(256);
       break;
     case 14 + offset:
-      for (int i = 0; i < 6; i++)
+      for (int i = 0; i < DIRECTOLOR_REMOTE_CHANNELS; i++)
       {
         if (bitRead(commandItem.channels, i))
         {
-          payload[payloadOffset + j] = i + 1;
-          payload[3] = payload[3] + 1;
-          payloadOffset += 1;
+          payload[j + payloadOffset++] = i + 1;
+          payload[3]++;
         }
       }
-      payloadOffset -= 1;
+      payloadOffset--;
       break;
     case 16 + offset:
       payload[payloadOffset + j] = commandItem.radioCodes[2];
@@ -555,70 +566,67 @@ int Directolor::getRadioCommand(byte *payload, CommandItem commandItem)
       payload[payloadOffset + j] = commandPrototype[j];
       break;
     }
+    j++;
   }
 
   return sizeof(commandPrototype) + payloadOffset;
 }
 
-long lastMessageSend = 0;
-long lastInhibit = 0;
+unsigned long lastMessageSend = 0;
+unsigned long lastInhibit = 0;
 int lastInhibitDuration = 0;
 
-void Directolor::sendCodeTask(void *parameter)
+void Directolor::processLoop()
 {
-  Directolor::CommandItem commandItem;
-
-  while (1)
+  if (++lastCommand == DIRECTOLOR_MAX_QUEUED_COMMANDS)
+    lastCommand = 0;
+  if (((millis() - lastMessageSend) > INTERMESSAGE_SEND_DELAY) && ((millis() - lastInhibit) > lastInhibitDuration) && (commandItems[lastCommand].radioCodes != 0))
   {
-    if ((abs(millis() - lastMessageSend) > INTERMESSAGE_SEND_DELAY) && (abs(millis() - lastInhibit) > lastInhibitDuration) && xQueueReceive(queue, &commandItem, 1))
+    messageIsSending = true;
+    radio.powerUp();
+    radio.stopListening(); // put radio in TX mode
+
+    delay(20); // the first command seems to be weak...
+    radio.setPALevel(RF24_PA_MAX);
+    radio.setAddressWidth(3);
+    radio.enableDynamicAck();
+    radio.openWritingPipe(0x060406);
+
+    unsigned long start_timer = millis();
+
+    byte payload[MAX_PAYLOAD_SIZE];
+
+    int length = getRadioCommand(payload, commandItems[lastCommand]);
+
+    uint16_t crc = crc16((uint8_t *)payload, length, 0x755b, 0xFFFF, 0, false, false); // took some time to figure this out.  big thanks to CRC RevEng by Gregory Cook!!!!  CRC is calculated over the whole payload, including radio id at start.
+    payload[length++] = crc >> 8;
+    payload[length] = crc & 0xFF;
+
+    for (int i = MAX_PAYLOAD_SIZE; i > 0; i--) // pad with leading 0x55 to train the shade receivers
     {
-      messageIsSending = true;
-      radio.powerUp();
-      radio.stopListening(); // put radio in TX mode
-      delay(20);             // the first command seems to be weak...
-      radio.setPALevel(RF24_PA_MAX);
-      radio.setAddressWidth(3);
-      radio.enableDynamicAck();
-      radio.openWritingPipe(0x060406);
-
-      unsigned long start_timer = millis();
-
-      byte payload[MAX_PAYLOAD_SIZE];
-
-      int length = getRadioCommand(payload, commandItem);
-
-      uint16_t crc = crc16((uint8_t *)payload, length, 0x755b, 0xFFFF, 0, false, false); // took some time to figure this out.  big thanks to CRC RevEng by Gregory Cook!!!!  CRC is calculated over the whole payload, including radio id at start.
-      payload[length++] = crc >> 8;
-      payload[length] = crc & 0xFF;
-
-      for (int i = MAX_PAYLOAD_SIZE; i > 0; i--)  //pad with leading 0x55 to train the shade receivers
-      {
-        if (i - (MAX_PAYLOAD_SIZE - length) >= 0)
-          payload[i - 1] = payload[i - (MAX_PAYLOAD_SIZE - length)];
-        else
-          payload[i - 1] = 0x55;
-      }
-
-      sendCode(payload, MAX_PAYLOAD_SIZE);
-
-      unsigned long end_timer = millis();
-      Serial.println(end_timer - start_timer);
-      lastMessageSend = millis();
-      if (commandItem.blindAction == directolor_duplicate) // join / remove require duplicate to immediately preceed.
-        lastMessageSend = 0;
-      if (--commandItem.resendRemainingCount > 0)
-        xQueueSend(queue, &commandItem, portMAX_DELAY);
-      delay(10); // feed the watchdog timer in the idle thread....
+      if (i - (MAX_PAYLOAD_SIZE - length) >= 0)
+        payload[i - 1] = payload[i - (MAX_PAYLOAD_SIZE - length)];
+      else
+        payload[i - 1] = 0x55;
     }
 
-    if (messageIsSending)
-    {
-      messageIsSending = false;
-      enterRemoteCaptureMode();
-    }
-    checkRadioPayload();
-    yield();
+    sendCode(payload, MAX_PAYLOAD_SIZE);
+
+    unsigned long end_timer = millis();
+    Serial.println(end_timer - start_timer);
+    lastMessageSend = millis();
+    if (commandItems[lastCommand].blindAction == directolor_duplicate) // join / remove require duplicate to immediately preceed.
+      lastMessageSend = 0;
+    if (--commandItems[lastCommand].resendRemainingCount == 0)
+      commandItems[lastCommand].radioCodes = 0;
   }
+
+  if (messageIsSending)
+  {
+    messageIsSending = false;
+    enterRemoteCaptureMode();
+  }
+  checkRadioPayload();
 }
 
 void Directolor::inhibitSend(int durationMS)

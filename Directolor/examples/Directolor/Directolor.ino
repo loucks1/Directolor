@@ -17,7 +17,7 @@ void handleRoot() {
   char temp[2000];
 
   char remoteOptions[60 * DIRECTOLOR_REMOTE_COUNT];
-  char channelOptions[60 * DIRECTOLOR_REMOTE_CHANNELS];
+  char channelOptions[65 * DIRECTOLOR_REMOTE_CHANNELS];
 
   int offset = 0;
 
@@ -216,4 +216,5 @@ void setup(void) {
 
 void loop(void) {
   server.handleClient();
+  directolor.processLoop();
 }

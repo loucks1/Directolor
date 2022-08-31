@@ -153,9 +153,11 @@ void setup() {
   serial_commands_.AddCommand(&cmd_updateChannel_);
   serial_commands_.AddCommand(&cmd_help_);
 
+  delay(500);
   cmd_help(0);
 }
 
 void loop() {
   serial_commands_.ReadSerial();
+  directolor.processLoop();
 } // loop

@@ -24,6 +24,7 @@
 
 #define DIRECTOLOR_REMOTE_COUNT 7    // this should match the number of Radios in the RemoteCode const (bottom of this file)
 #define DIRECTOLOR_REMOTE_CHANNELS 6 // I tried to use 7 channels and it wouldn't work - looks like we're limited to 6   YMMV
+#define DIRECTOLOR_MAX_QUEUED_COMMANDS DIRECTOLOR_REMOTE_COUNT * 2
 
 #define COMMAND_CODE_LENGTH 17
 #define DUPLICATE_CODE_LENGTH 18
@@ -32,12 +33,12 @@
 
 #define MAX_PAYLOAD_SIZE 32 // maximum payload that you can send with the nRF24l01+
 
-#define MESSAGE_SEND_ATTEMPTS 3     // this is the number of times we will generate and send the message (3 seems to work well for me, but feel free to change up or down as needed)
-#define MESSAGE_SEND_RETRIES 512    // the number of times to resend the message(seems like numbers > 400 are more reliable - feel free to change as necessary)
-#define INTERMESSAGE_SEND_DELAY 513 // the delay between message sends (if this is too low, the blinds seem to 'miss' messsages)
+#define MESSAGE_SEND_ATTEMPTS 3         // this is the number of times we will generate and send the message (3 seems to work well for me, but feel free to change up or down as needed)
+#define MESSAGE_SEND_RETRIES 513        // the number of times to resend the message(seems like numbers > 400 are more reliable - feel free to change as necessary)
+#define INTERMESSAGE_SEND_DELAY 512 / 3 // the delay between message sends (if this is too low, the blinds seem to 'miss' messsages)
 
-#define DIRECTOLOR_CAPTURE_FIRST    //with this enabled, it will only show the first message when in capture mode, otherwise, it dumps every message it can
-#define DIRECTOLOR_DEBUG_SENT_CODES //with this enabled, we'll dump the codes we're sending to the serial port
+#define DIRECTOLOR_CAPTURE_FIRST    // with this enabled, it will only show the first message when in capture mode, otherwise, it dumps every message it can - if you want to see full join or remove codes, you'll need to disable this.
+#define DIRECTOLOR_DEBUG_SENT_CODES // with this enabled, we'll dump the codes we're sending to the serial port
 
 enum BlindAction
 {
@@ -57,11 +58,11 @@ class Directolor
 {
 
 public:
-    Directolor(uint16_t _cepin, uint16_t _cspin, uint32_t _spi_speed = RF24_SPI_SPEED);  //creates the interface and initializes the radio
+    Directolor(uint16_t _cepin, uint16_t _cspin, uint32_t _spi_speed = RF24_SPI_SPEED); // creates the interface and initializes the radio
 
-    static bool enterRemoteSearchMode();  //puts the code into search mode - when searching, you *must* be using a remote on only one channel and choose one of the regular buttons (open, close, stop, etc)
+    static bool enterRemoteSearchMode(); // puts the code into search mode - when searching, you *must* be using a remote on only one channel and choose one of the regular buttons (open, close, stop, etc)
 
-    void dumpCodes();  //once in remote search mode, if you've found a remote, you can dump to get the codes, then place those found codes into the remoteCodes const at the bottom of this file (don't forget to update the DIRECTOLOR_REMOTE_COUNT #define at the top if you add one)
+    void dumpCodes(); // once in remote search mode, if you've found a remote, you can dump to get the codes, then place those found codes into the remoteCodes const at the bottom of this file (don't forget to update the DIRECTOLOR_REMOTE_COUNT #define at the top if you add one)
 
     bool sendCode(int remoteId, uint8_t channel, BlindAction blindAction); // send a code to a channel (1,2,3,4,5,6) - matches the buttons on the remote (even if you have a 3 button remote, you can still assign and use channels 4-6 with directolor, you just can't access them from the remote)
 
@@ -69,10 +70,12 @@ public:
 
     void inhibitSend(int durationMS); // maximum of 4 * INTERMESSAGE_SEND_DELAY (if you pass 0 it calls enabledSend()) - use this if, for example, you are also using a 433mhz radio that sends codes as well.  You'd want to inhibitSend on directolor while sending those other codes to avoid shades missing commands
 
-    void enableSend();  //equivalent to inhibitSend(0);
+    void enableSend(); // equivalent to inhibitSend(0);
+
+    void processLoop();
 
 private:
-    struct CommandItem
+    typedef struct CommandItem
     {
         uint8_t *radioCodes;
         uint8_t channels;
@@ -90,15 +93,15 @@ private:
     static const uint8_t matchPattern[4]; // this is what we use to find out what the codes for the remote are
 
     static RF24 radio;
-    static QueueHandle_t queue;
     static bool messageIsSending;
     static bool learningRemote;
     static bool radioValid;
     static RemoteCode remoteCode;
-    static long lastMillis;
+    static unsigned long lastMillis;
+    static CommandItem commandItems[DIRECTOLOR_MAX_QUEUED_COMMANDS];
+    static short lastCommand;
 
     static bool sendCode(byte *payload, uint8_t payloadSize);
-    static void sendCodeTask(void *parameter);
     static bool radioStarted();
     static void checkRadioPayload();
     static bool checkMessageIsSending();
@@ -139,6 +142,6 @@ private:
              */
             ,
             {{0x6F, 0xF1, 0xEE, 0xB7}},
-            {{0x56, 0x13, 0x04, 0x67}}};  //this is just random bytes I put it - couldn't get it work when trying to join channel 4, but it did work with channel 1, and then I was able to join channel 4 and remove channel 1 - weird.
+            {{0x56, 0x13, 0x04, 0x67}}}; // this is just random bytes I put it - couldn't get it work when trying to join channel 4, but it did work with channel 1, and then I was able to join channel 4 and remove channel 1 - weird.
 };
 #endif
