@@ -8,6 +8,12 @@ This differs from Wevolor (https://wevolor.com/) in that you DON'T need a Levolo
 
 Typical usage:
 
+Make sure you have the prerequisites:
+  esp32 board version 1.0.6 or higher
+  SerialCommands (by Pedro Tiago Pereira) version 2.2.0 
+  RF24 (by TMRh20, Avamander) version 1.4.5
+  CRC (by Rob Tillaart) version 0.3.1
+  
 1.	download solution, install to your libraries folder
 2.	open the GetBlindCodes example
 3.	choose to either copy the Directolor remotes to your remotes or copy your remotes to Directolor
