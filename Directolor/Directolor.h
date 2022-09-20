@@ -100,6 +100,10 @@ private:
     static unsigned long lastMillis;
     static CommandItem commandItems[DIRECTOLOR_MAX_QUEUED_COMMANDS];
     static short lastCommand;
+    static uint16_t _cepin;
+    static uint16_t _cspin;
+    static uint32_t _spi_speed;
+    static bool radioInitialized;
 
     static bool sendCode(byte *payload, uint8_t payloadSize);
     static bool radioStarted();

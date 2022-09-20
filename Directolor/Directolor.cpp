@@ -24,18 +24,23 @@
 
 RF24 Directolor::radio;
 bool Directolor::messageIsSending = false;
+bool Directolor::radioInitialized = false;
 bool Directolor::learningRemote = false;
 bool Directolor::radioValid = false;
 Directolor::RemoteCode Directolor::remoteCode;
 unsigned long Directolor::lastMillis = 0;
 short Directolor::lastCommand = 0;
+uint16_t Directolor::_cepin;
+uint16_t Directolor::_cspin;
+uint32_t Directolor::_spi_speed;
 
 constexpr uint8_t Directolor::matchPattern[4] = {0xC0, 0X11, 0X00, 0X05}; // this is what we use to find out what the codes for the remote are
 
-Directolor::Directolor(uint16_t _cepin, uint16_t _cspin, uint32_t _spi_speed)
+Directolor::Directolor(uint16_t cepin, uint16_t cspin, uint32_t spi_speed)
 {
-  radio = RF24(_cepin, _cspin, _spi_speed);
-  messageIsSending = false;
+  _cepin = cepin;
+  _cspin = cspin;
+  _spi_speed = spi_speed;
   for (int i = 0; i < DIRECTOLOR_MAX_QUEUED_COMMANDS; i++)
   {
     commandItems[i].radioCodes = 0;
@@ -51,6 +56,15 @@ bool Directolor::radioStarted()
 {
   if (!radioValid)
   {
+    if (!radioInitialized)
+    {
+      Serial.print("Attempting to initialize radio - CE Pin:");
+      Serial.print(_cepin);
+      Serial.print(" CS Pin:");
+      Serial.println(_cspin);
+      radio = RF24(_cepin, _cspin, _spi_speed);
+      radioInitialized = true;
+    }
     Serial.println("Attempting to start radio");
     radioValid = radio.begin();
     if (radioValid)
@@ -58,9 +72,9 @@ bool Directolor::radioStarted()
       radio.setAutoAck(false);               // auto-ack has to be off or everything breaks because I haven't been able to RE the protocol CRC / validation
       radio.setCRCLength(RF24_CRC_DISABLED); // disable CRC
 
-      radio.setChannel(53); // remotes transmit at 2453
+      radio.setChannel(53); // remotes transmit at 2453 mHz
 
-      radio.closeReadingPipe(0); // close pipes unless something left it listening
+      radio.closeReadingPipe(0); // close pipes in case something left it listening
       radio.closeReadingPipe(1);
       radio.closeReadingPipe(2);
       radio.closeReadingPipe(3);
