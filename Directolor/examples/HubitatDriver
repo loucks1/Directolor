@@ -25,6 +25,8 @@ metadata {
         capability "Switch"
 		capability "Actuator"
 		capability "Sensor"
+		
+	        command "toFav"
 	}
     
     preferences {
@@ -49,6 +51,11 @@ def open() {
 def close() {
 	sendDataDelayed("close")
     sendEvent(name: "switch", value: "off", isStateChange: true)
+}
+
+def toFav() {
+	sendDataDelayed("toFav")
+    sendEvent(name: "switch", value: "toFav", isStateChange: true)
 }
 
 void on() {
