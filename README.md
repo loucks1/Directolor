@@ -1,4 +1,11 @@
 # Directolor
+
+
+### DEPRACATED - Please use:  https://github.com/loucks1/Directolor-ESPHome instead ###
+
+Left this here for those people who already have it working.
+
+
 ESP32 + NRF24L01+ library to control Levolor blinds
 
 
